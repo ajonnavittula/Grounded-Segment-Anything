@@ -11,6 +11,11 @@ We are very willing to **help everyone share and promote new projects** based on
 
 The **core idea** behind this project is to **combine the strengths of different models in order to build a very powerful pipeline for solving complex problems**. And it's worth mentioning that this is a workflow for combining strong expert models, where **all parts can be used separately or in combination, and can be replaced with any similar but different models (like replacing Grounding DINO with GLIP or other detectors / replacing Stable-Diffusion with ControlNet or GLIGEN/ Combining with ChatGPT)**.
 
+**🍇 Updates**
+- **`2023/05/03`**: Release a simpler code for automatic labeling (combined with Tag2Text model): please see [automatic_label_simple_demo.py](./automatic_label_simple_demo.py)
+- **`2023/05/02`**: Release a better python API for GroundingDINO (annotate image less than 20 lines of code): please see [grounding_dino_demo.py](./grounding_dino_demo.py)
+- **`2023/05/02`**: Release a more simple and elegant code for Grounded-SAM demo: please see [grounded_sam_simple_demo.py](./grounded_sam_simple_demo.py) 
+
 **🍊 Preliminary Works**
 - [Segment Anything](https://github.com/facebookresearch/segment-anything) is a strong segmentation model. But it needs prompts (like boxes/points) to generate masks. 
 - [Grounding DINO](https://github.com/IDEA-Research/GroundingDINO) is a strong zero-shot detector which is capable of to generate high quality boxes and labels with free-form text. 
@@ -35,7 +40,7 @@ simultaneously output superior image captioning and image tagging.
 **🍉 The Supported Amazing Demos in this Project**
 
 - [GroundingDINO: Detect Everything with Text Prompt](#runner-run-grounding-dino-demo)
-- [GroundingDINO + Segment-Anything: Detect and Segment Everything with Text Prompt](#runningman-run-grounded-segment-anything-demo)
+- [GroundingDINO + Segment-Anything: Detect and Segment Everything with Text Prompt](#running_man-run-grounded-segment-anything-demo)
 - [GroundingDINO + Segment-Anything + Stable-Diffusion: Detect, Segment and Generate Anything with Text Prompts](#skier-run-grounded-segment-anything--inpainting-demo)
 - [Grounded-SAM + Stable-Diffusion Gradio APP](#golfing-run-grounded-segment-anything--inpainting-gradio-app)
 - [Grounded-SAM + Tag2Text: Automatically Labeling System with Superior Image Tagging!](#label-run-grounded-segment-anything--tag2text-demo)
@@ -59,6 +64,8 @@ https://user-images.githubusercontent.com/24236723/231955561-2ae4ec1a-c75f-4cc5-
 
 **🔥 Grounded-SAM: Semi-automatic Labeling System**
 ![](./assets/grounded_sam2.png)
+
+![](./assets/grounded_sam_new_demo_image.png)
 
 **Tips**
 - If you want to detect multiple objects in one sentence with [Grounding DINO](https://github.com/IDEA-Research/GroundingDINO), we suggest seperating each name with `.` . An example: `cat . dog . chair .`
@@ -134,6 +141,7 @@ We extend the scope to 3D world by combining Segment Anything and [VoxelNeXt](ht
 - [Segment-Anything-3D: Transferring Segmentation Information of 2D Images to 3D Space](https://github.com/Pointcept/SegmentAnything3D) by Yunhan Yang
 - [Expediting SAM without Fine-tuning](https://github.com/Expedit-LargeScale-Vision-Transformer/Expedit-SAM) by Weicong Liang and Yuhui Yuan
 - [Semantic Segment Anything: Providing Rich Sementic Category Annotations for SAM](https://github.com/fudan-zvg/Semantic-Segment-Anything) by Jiaqi Chen and Zeyu Yang and Li Zhang
+- [Enhance Everything: Combining SAM with Image Restoration and Enhancement Tasks](https://github.com/lixinustc/Enhance-Anything) by Xin Li
 
 ## :open_book: Notebook Demo
 See our [notebook file](grounded_sam.ipynb) as an example.
@@ -144,6 +152,10 @@ The code requires `python>=3.8`, as well as `pytorch>=1.7` and `torchvision>=0.8
 ### Install with Docker
 
 Open one terminal:
+
+```
+make build-image
+```
 
 ```
 make run
@@ -233,6 +245,35 @@ python grounding_dino_demo.py \
 
 ![](./assets/grounding_dino_output_demo1.jpg)
 
+- Running with Python (Credits to [Piotr Skalski](https://github.com/SkalskiP)):
+```python
+from groundingdino.util.inference import load_model, load_image, predict, annotate
+import cv2
+
+model = load_model("GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py", "./groundingdino_swint_ogc.pth")
+IMAGE_PATH = "assets/demo1.jpg"
+TEXT_PROMPT = "bear."
+BOX_TRESHOLD = 0.35
+TEXT_TRESHOLD = 0.25
+
+image_source, image = load_image(IMAGE_PATH)
+
+boxes, logits, phrases = predict(
+    model=model,
+    image=image,
+    caption=TEXT_PROMPT,
+    box_threshold=BOX_TRESHOLD,
+    text_threshold=TEXT_TRESHOLD
+)
+
+annotated_frame = annotate(image_source=image_source, boxes=boxes, logits=logits, phrases=phrases)
+cv2.imwrite("annotated_image.jpg", annotated_frame)
+```
+
+The results will be shown as:
+
+![](./assets/annotated_image.jpg)
+
 ## :running_man: Run Grounded-Segment-Anything Demo
 - Download the checkpoint for Segment Anything and Grounding Dino:
 ```bash
@@ -261,8 +302,19 @@ python grounded_sam_demo.py \
 
 ![](./assets/grounded_sam_output_demo1.jpg)
 
-**More Examples**
-![](./assets/grounded_sam_demo3_demo4.png)
+**Run More Simple and Elegant Demo**
+```bash
+python grounded_sam_simple_demo.py
+```
+Note that you can update the hyper-params defined in [grounded_sam_simple_demo.py](./grounded_sam_simple_demo.py)
+
+The results will be saved as `groundingdino_annotated_image.jpg`:
+
+![](assets/groundingdino_annotated_image.jpg)
+
+and `grounded_sam_annotated_image.jpg`:
+
+![](assets/grounded_sam_annotated_image.jpg)
 
 ## :skier: Run Grounded-Segment-Anything + Inpainting Demo
 
@@ -317,7 +369,7 @@ wget https://huggingface.co/spaces/xinyu1205/Tag2Text/resolve/main/tag2text_swin
 export CUDA_VISIBLE_DEVICES=0
 python automatic_label_tag2text_demo.py \
   --config GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py \
-  --tag2text_checkpoint tag2text_swin_14m.pth \
+  --tag2text_checkpoint ./Tag2Text/tag2text_swin_14m.pth \
   --grounded_checkpoint groundingdino_swint_ogc.pth \
   --sam_checkpoint sam_vit_h_4b8939.pth \
   --input_image assets/demo9.jpg \
