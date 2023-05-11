@@ -10,6 +10,10 @@ import re
 from tqdm import tqdm
 
 # Grounding DINO
+import sys
+sys.path.append(os.path.abspath('GroundedSegmentAnything'))
+sys.path.append(os.path.abspath('./GroundingDINO'))
+sys.path.append(os.path.abspath('./GroundingDINO/groundingdino'))
 import GroundingDINO.groundingdino.datasets.transforms as T
 from GroundingDINO.groundingdino.models import build_model
 from GroundingDINO.groundingdino.util import box_ops
@@ -17,6 +21,7 @@ from GroundingDINO.groundingdino.util.slconfig import SLConfig
 from GroundingDINO.groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
 
 # segment anything
+sys.path.append(os.path.abspath('./segment_anything'))
 from segment_anything import build_sam, SamPredictor 
 import cv2
 import numpy as np
@@ -137,8 +142,7 @@ def save_mask_data(output_dir, mask_list, box_list, label_list):
         json.dump(json_data, f)
     
 
-if __name__ == "__main__":
-
+def parse_args():
     parser = argparse.ArgumentParser("Grounded-Segment-Anything Demo", add_help=True)
     parser.add_argument("--config", type=str, required=True, help="path to config file")
     parser.add_argument(
@@ -161,6 +165,9 @@ if __name__ == "__main__":
 
     parser.add_argument("--device", type=str, default="cpu", help="running on cpu only!, default=False")
     args = parser.parse_args()
+    return args
+
+def get_obj_traj(args, text_prompt, demo_dir=None):
 
     # cfg
     config_file = args.config  # change the path of the model config file
@@ -173,23 +180,22 @@ if __name__ == "__main__":
     text_threshold = args.text_threshold
     device = args.device
 
-    # find most common tag
-    tag_freq_path = os.path.join(args.data_dir, "tag_frequencies.json")
-    with open(tag_freq_path, "r") as file:
-        tag_freq = json.load(file)
-
-    text_prompt = max(tag_freq, key=tag_freq.get)
-    print("Most frequent tag is : {}".format(text_prompt))
+    if demo_dir is None:
+        demo_dir = args.data_dir
+        
+    # text_prompt = max(tag_freq, key=tag_freq.get)
+    # print("Most frequent tag is : {}".format(text_prompt))
 
     # make dir
-    output_dir = os.path.join(args.data_dir, "grounded_sam")
+    output_dir = os.path.join(demo_dir, "grounded_sam")
     os.makedirs(output_dir, exist_ok=True)
     model = load_model(config_file, grounded_checkpoint, device=device)
     predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint).to(device))
 
     # initialize SAM
-    image_dir = os.path.join(os.path.abspath(args.data_dir), "rgb")
+    image_dir = os.path.join(os.path.abspath(demo_dir), "rgb")
     input_data = sorted(os.listdir(image_dir), key=num_sort)
+    obj_traj = []
     for image_idx in tqdm(range(len(input_data)), dynamic_ncols=True):
 
         image_num = input_data[image_idx]
@@ -206,7 +212,7 @@ if __name__ == "__main__":
             model, image, text_prompt, box_threshold, text_threshold, device=device
         )
         if boxes_filt.nelement() == 0:
-            print("Tag not found in image: {}".format(image_num))
+            tqdm.write("Tag not found in image: {}".format(image_num))
             continue
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -236,12 +242,23 @@ if __name__ == "__main__":
         for box, label in zip(boxes_filt, pred_phrases):
             show_box(box.numpy(), plt.gca(), label)
         
+        box = boxes_filt[0]
+        x0, y0 = box[0], box[1]
+        w, h = box[2] - box[0], box[3] - box[1]
+        obj_traj.append([image_num, [int(x0 + w/2), int(y0 + h/2)]])
+
         # savename = os.path.basename()
         plt.axis('off')
         plt.savefig(
             os.path.join(output_dir, image_num), 
             bbox_inches="tight", dpi=300, pad_inches=0.0
         )
-
+    return obj_traj
         # save_mask_data(output_dir, masks, boxes_filt, pred_phrases)
+
+if __name__ == "__main__":
+
+    args = parse_args()
+    get_obj_traj(args)
+
 

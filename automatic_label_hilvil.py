@@ -9,9 +9,10 @@ import torch
 import torchvision
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
+import sys
 
 import nltk
-nltk.download(['punkt', 'averaged_perceptron_tagger', 'wordnet'])
+nltk.download(['punkt', 'averaged_perceptron_tagger', 'wordnet', 'omw-1.4'])
 
 
 # Grounding DINO
@@ -22,17 +23,16 @@ from GroundingDINO.groundingdino.util.slconfig import SLConfig
 from GroundingDINO.groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
 
 # segment anything
-from segment_anything import build_sam, SamPredictor 
+# from segment_anything import build_sam, SamPredictor 
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
 # Tag2Text
-import sys
-sys.path.append('Tag2Text')
-from Tag2Text.models import tag2text
-from Tag2Text import inference
-import torchvision.transforms as TS
+# sys.path.append('Tag2Text')
+# from Tag2Text.models import tag2text
+# from Tag2Text import inference
+# import torchvision.transforms as TS
 
 # # BLIP
 from transformers import BlipProcessor, BlipForConditionalGeneration
@@ -58,7 +58,7 @@ def load_image(image_path):
     return image_pil, image
 
 
-def generate_caption(raw_image, device):
+def generate_caption(raw_image, device, processor, blip_model):
     # unconditional image captioning
     if device == "cuda":
         inputs = processor(raw_image, return_tensors="pt").to("cuda", torch.float16)
@@ -184,8 +184,7 @@ def save_mask_data(output_dir, caption, mask_list, box_list, label_list):
 def num_sort(input_string):
     return list(map(int, re.findall(r'\d+', input_string)))[0]
 
-if __name__ == "__main__":
-
+def parse_args():
     parser = argparse.ArgumentParser("Grounded-Segment-Anything Demo", add_help=True)
     parser.add_argument("--config", type=str, required=True, help="path to config file")
     parser.add_argument(
@@ -215,7 +214,9 @@ if __name__ == "__main__":
             help="Path for parent folder with images and depth info")
 
     args = parser.parse_args()
+    return args
 
+def automatic_label(args):
     # cfg
     config_file = args.config  # change the path of the model config file
     grounded_checkpoint = args.grounded_checkpoint  # change the path of the model
@@ -312,7 +313,7 @@ if __name__ == "__main__":
         # print(text_prompt)
         # caption=res[2]
 
-        caption = generate_caption(image_pil, device=device)
+        caption = generate_caption(image_pil, device=device, processor=processor, blip_model=blip_model)
         # Currently ", " is better for detecting single tags
         # while ". " is a little worse in some case
         text_prompt = generate_tags(caption, split=split)
@@ -348,3 +349,10 @@ if __name__ == "__main__":
         
     text_prompt = max(tag_freq, key=tag_freq.get)
     print("Most frequent tag is : {}".format(text_prompt))
+    return text_prompt
+
+
+if __name__ == "__main__":
+
+    args = parse_args()
+    automatic_label(args)
