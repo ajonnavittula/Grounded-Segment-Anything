@@ -167,7 +167,7 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def get_obj_traj(args, text_prompt, demo_dir=None):
+def get_obj_traj(args, text_prompt, demo_dir=None, img_list=None):
 
     # cfg
     config_file = args.config  # change the path of the model config file
@@ -188,16 +188,19 @@ def get_obj_traj(args, text_prompt, demo_dir=None):
 
     # make dir
     output_dir = os.path.join(demo_dir, "grounded_sam")
-    os.makedirs(output_dir, exist_ok=True)
+    # print(os.path.abspath(output_dir))
+    os.makedirs(output_dir, exist_ok=True, mode=0o777)
     model = load_model(config_file, grounded_checkpoint, device=device)
     predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint).to(device))
 
     # initialize SAM
     image_dir = os.path.join(os.path.abspath(demo_dir), "rgb")
-    input_data = sorted(os.listdir(image_dir), key=num_sort)
+    if img_list == None:
+        input_data = sorted(os.listdir(image_dir), key=num_sort)
+    else:
+        input_data = sorted(img_list, key=num_sort)
     obj_traj = []
     for image_idx in tqdm(range(len(input_data)), dynamic_ncols=True):
-
         image_num = input_data[image_idx]
 
 
