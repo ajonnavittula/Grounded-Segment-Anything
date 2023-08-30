@@ -8,6 +8,8 @@ import torch
 from PIL import Image, ImageDraw, ImageFont
 import re
 from tqdm import tqdm
+import pickle
+import pyrealsense2 as rs
 
 # Grounding DINO
 import sys
@@ -19,6 +21,7 @@ from GroundingDINO.groundingdino.models import build_model
 from GroundingDINO.groundingdino.util import box_ops
 from GroundingDINO.groundingdino.util.slconfig import SLConfig
 from GroundingDINO.groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
+from camera_utils import realsense_load_intrinsics
 
 # segment anything
 sys.path.append(os.path.abspath('./segment_anything'))
@@ -87,14 +90,16 @@ def get_grounding_output(model, image, caption, box_threshold, text_threshold, w
     tokenized = tokenlizer(caption)
     # build pred
     pred_phrases = []
+    confidence = []
     for logit, box in zip(logits_filt, boxes_filt):
         pred_phrase = get_phrases_from_posmap(logit > text_threshold, tokenized, tokenlizer)
+        confidence.append(logit.max().item())
         if with_logits:
             pred_phrases.append(pred_phrase + f"({str(logit.max().item())[:4]})")
         else:
             pred_phrases.append(pred_phrase)
 
-    return boxes_filt, pred_phrases
+    return boxes_filt, pred_phrases, confidence
 
 def show_mask(mask, ax, random_color=False):
     if random_color:
@@ -112,6 +117,8 @@ def show_box(box, ax, label):
     ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0,0,0,0), lw=2)) 
     ax.text(x0, y0, label)
 
+def save_vis(image, boxes, pred_phrases, masks=None):
+    cv2.imshow(image)
 
 def save_mask_data(output_dir, mask_list, box_list, label_list):
     value = 0  # 0 for background
@@ -119,7 +126,7 @@ def save_mask_data(output_dir, mask_list, box_list, label_list):
     mask_img = torch.zeros(mask_list.shape[-2:])
     for idx, mask in enumerate(mask_list):
         mask_img[mask.cpu().numpy()[0] == True] = value + idx + 1
-    plt.figure(figsize=(10, 10))
+    plt.figure()
     plt.imshow(mask_img.numpy())
     plt.axis('off')
     plt.savefig(os.path.join(output_dir, 'mask.jpg'), bbox_inches="tight", dpi=300, pad_inches=0.0)
@@ -167,7 +174,7 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def get_obj_traj(args, text_prompt, demo_dir=None, img_list=None):
+def get_obj_traj(args, text_prompt, demo_dir=None, img_list=None, times=None):
 
     # cfg
     config_file = args.config  # change the path of the model config file
@@ -183,9 +190,6 @@ def get_obj_traj(args, text_prompt, demo_dir=None, img_list=None):
     if demo_dir is None:
         demo_dir = args.data_dir
         
-    # text_prompt = max(tag_freq, key=tag_freq.get)
-    # print("Most frequent tag is : {}".format(text_prompt))
-
     # make dir
     output_dir = os.path.join(demo_dir, "grounded_sam")
     # print(os.path.abspath(output_dir))
@@ -194,15 +198,24 @@ def get_obj_traj(args, text_prompt, demo_dir=None, img_list=None):
     predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint).to(device))
 
     # initialize SAM
+    if times is None:
+        return_time = False
+    else:
+        return_time = True
+
     image_dir = os.path.join(os.path.abspath(demo_dir), "rgb")
+    depth_dir = os.path.join(os.path.abspath(demo_dir), "depth")
+
     if img_list == None:
         input_data = sorted(os.listdir(image_dir), key=num_sort)
     else:
         input_data = sorted(img_list, key=num_sort)
     obj_traj = []
+
     for image_idx in tqdm(range(len(input_data)), dynamic_ncols=True):
         image_num = input_data[image_idx]
-
+        if return_time:
+            img_time = times[image_idx]
 
         # print("loading img {}".format(image_num))
         image_path = os.path.join(image_dir, image_num)
@@ -211,11 +224,13 @@ def get_obj_traj(args, text_prompt, demo_dir=None, img_list=None):
         image_pil, image = load_image(image_path)
 
         # run grounding dino model
-        boxes_filt, pred_phrases = get_grounding_output(
+        boxes_filt, pred_phrases, confidence = get_grounding_output(
             model, image, text_prompt, box_threshold, text_threshold, device=device
         )
         if boxes_filt.nelement() == 0:
             tqdm.write("Tag not found in image: {}".format(image_num))
+            if return_time:
+                obj_traj.append([img_time, image_num, None])
             continue
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -228,34 +243,49 @@ def get_obj_traj(args, text_prompt, demo_dir=None, img_list=None):
             boxes_filt[i][:2] -= boxes_filt[i][2:] / 2
             boxes_filt[i][2:] += boxes_filt[i][:2]
 
-        boxes_filt = boxes_filt.cpu()
-        transformed_boxes = predictor.transform.apply_boxes_torch(boxes_filt, image.shape[:2]).to(device)
-        masks, _, _ = predictor.predict_torch(
-            point_coords = None,
-            point_labels = None,
-            boxes = transformed_boxes.to(device),
-            multimask_output = False,
-        )
+        # boxes_filt = boxes_filt.cpu()
+        # transformed_boxes = predictor.transform.apply_boxes_torch(boxes_filt, image.shape[:2]).to(device)
+        # masks, _, _ = predictor.predict_torch(
+        #     point_coords = None,
+        #     point_labels = None,
+        #     boxes = transformed_boxes.to(device),
+        #     multimask_output = False,
+        # )
         
         # draw output image
-        plt.figure(figsize=(10, 10))
-        plt.imshow(image)
-        for mask in masks:
-            show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
+        plt.figure()
+        plt.imshow(image, aspect='auto')
+        # save_vis(image, boxes_filt, pred_phrases)
+        # for mask in masks:
+        #     show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
         for box, label in zip(boxes_filt, pred_phrases):
             show_box(box.numpy(), plt.gca(), label)
-        
-        box = boxes_filt[0]
+        box = boxes_filt[np.argmax(confidence)]
         x0, y0 = box[0], box[1]
         w, h = box[2] - box[0], box[3] - box[1]
-        obj_traj.append([image_num, [int(x0 + w/2), int(y0 + h/2)]])
+        # deproject object from pixel space
+        depth_filename = os.path.join(depth_dir, image_num.replace("png", "pkl"))
+        depth = pickle.load(open(depth_filename, "rb"))
+        pixel_coords = [int(x0 + w/2), int(y0 + h/2)]
+        depth = np.mean(depth[pixel_coords[1]-1:pixel_coords[1]+1, pixel_coords[0]-1:pixel_coords[0]+1])
 
-        # savename = os.path.basename()
+        # convert object traj from pixel space to robot space
+        intr_path = "./intrinsics.json"
+        intr_depth, intr_color = realsense_load_intrinsics(intr_path)   # camera intrinsics
+        obj_coords = []
+
+        # coords = rs.rs2_deproject_pixel_to_point(intr_depth, pixel_coords, depth)
+
+        if return_time:
+            obj_traj.append([img_time, image_num, pixel_coords])
+        else:
+            obj_traj.append([image_num, pixel_coords])
         plt.axis('off')
         plt.savefig(
             os.path.join(output_dir, image_num), 
             bbox_inches="tight", dpi=300, pad_inches=0.0
         )
+
     return obj_traj
         # save_mask_data(output_dir, masks, boxes_filt, pred_phrases)
 

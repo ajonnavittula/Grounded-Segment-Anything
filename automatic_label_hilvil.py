@@ -125,12 +125,16 @@ def get_grounding_output(model, image, caption, box_threshold, text_threshold,de
     # build pred
     pred_phrases = []
     scores = []
+    # tags for object identification
+    tags = []
     for logit, box in zip(logits_filt, boxes_filt):
         pred_phrase = get_phrases_from_posmap(logit > text_threshold, tokenized, tokenlizer)
+        objects = pred_phrase.split()
+        tags.append(objects)
         pred_phrases.append(pred_phrase + f"({str(logit.max().item())[:4]})")
         scores.append(logit.max().item())
 
-    return boxes_filt, torch.Tensor(scores), pred_phrases
+    return boxes_filt, torch.Tensor(scores), pred_phrases, tags
 
 
 def show_mask(mask, ax, random_color=False):
@@ -285,7 +289,7 @@ def automatic_label(args):
     tag_freq = {}
     ignored_tags = ["someone", "person", "hand", "table", "robot", \
                     "desk", "room", "man", "arm", "boy", "woman", \
-                    "machine", "counter", "pan"]
+                    "machine", "counter", "pan", "paper", "box", "mouse"]
     for image_idx in tqdm(range(len(image_list))):
         image_num = image_list[image_idx]
         image_path = os.path.join(image_dir, image_num)
@@ -329,10 +333,12 @@ def automatic_label(args):
         # print(f"Tags: {text_prompt}")
 
         # run grounding dino model
-        boxes_filt, scores, pred_phrases = get_grounding_output(
+        boxes_filt, scores, pred_phrases, object_list = get_grounding_output(
             model, image, text_prompt, box_threshold, text_threshold, device=device
         )
-        object_list = [obj.split('(')[0] for obj in pred_phrases]
+        object_list = [item for sublist in object_list for item in sublist]
+        # object_list = [obj.split('(')[0] for obj in pred_phrases]
+
         tqdm.write("found objs: {}".format(object_list))
         for obj in object_list:
             if obj not in ignored_tags:
@@ -343,13 +349,7 @@ def automatic_label(args):
 
 
     # print(tag_freq)
-    tag_freq_path = os.path.join(args.data_dir, "tag_frequencies.json")
-    with open(tag_freq_path, "w") as file:
-        json.dump(tag_freq, file)
-        
-    text_prompt = max(tag_freq, key=tag_freq.get)
-    print("Most frequent tag is : {}".format(text_prompt))
-    return text_prompt
+    return tag_freq
 
 
 if __name__ == "__main__":
