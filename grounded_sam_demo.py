@@ -7,6 +7,7 @@ import json
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
+
 # Grounding DINO
 import GroundingDINO.groundingdino.datasets.transforms as T
 from GroundingDINO.groundingdino.models import build_model
@@ -167,7 +168,7 @@ if __name__ == "__main__":
     image_pil, image = load_image(image_path)
     # load model
     model = load_model(config_file, grounded_checkpoint, device=device)
-
+    print(next(model.parameters()).is_cuda)
     # visualize raw image
     image_pil.save(os.path.join(output_dir, "raw_image.jpg"))
 

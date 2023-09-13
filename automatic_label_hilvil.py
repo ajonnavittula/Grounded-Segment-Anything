@@ -220,7 +220,7 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def automatic_label(args):
+def automatic_label(args, image_dir=None):
     # cfg
     config_file = args.config  # change the path of the model config file
     grounded_checkpoint = args.grounded_checkpoint  # change the path of the model
@@ -282,8 +282,10 @@ def automatic_label(args):
     # tag2text_model.threshold = 0.64 
     # tag2text_model.eval()
 
-
-    image_dir = os.path.join(args.data_dir, "crop")
+    if image_dir is None:
+        data_dir = args.data_dir
+        image_dir = os.path.join(data_dir, "crop")
+    
     image_list = sorted(os.listdir(image_dir), key=num_sort)
 
     tag_freq = {}

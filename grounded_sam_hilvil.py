@@ -60,6 +60,7 @@ def load_model(model_config_path, model_checkpoint_path, device):
     checkpoint = torch.load(model_checkpoint_path, map_location="cpu")
     load_res = model.load_state_dict(clean_state_dict(checkpoint["model"]), strict=False)
     print(load_res)
+    model.to(device)
     _ = model.eval()
     return model
 
@@ -170,11 +171,11 @@ def parse_args():
     parser.add_argument("--data_dir", type=str, default="./data", 
             help="Path for parent folder with images and depth info")
 
-    parser.add_argument("--device", type=str, default="cpu", help="running on cpu only!, default=False")
+    parser.add_argument("--device", type=str, default="cuda", help="running on cpu only!, default=False")
     args = parser.parse_args()
     return args
 
-def get_obj_traj(args, text_prompt, demo_dir=None, img_list=None, times=None):
+def get_obj_traj(args, text_prompt, demo_dir=None, start=0, end=None, img_list=None, times=None, save_folder=None):
 
     # cfg
     config_file = args.config  # change the path of the model config file
@@ -186,14 +187,16 @@ def get_obj_traj(args, text_prompt, demo_dir=None, img_list=None, times=None):
     box_threshold = args.box_threshold
     text_threshold = args.text_threshold
     device = args.device
-
     if demo_dir is None:
         demo_dir = args.data_dir
         
     # make dir
-    output_dir = os.path.join(demo_dir, "grounded_sam")
+    if save_folder is not None:
+        output_dir = os.path.join(demo_dir, "grounded_sam", save_folder)
+    else:
+        output_dir = os.path.join(demo_dir, "grounded_sam")
     # print(os.path.abspath(output_dir))
-    os.makedirs(output_dir, exist_ok=True, mode=0o777)
+    os.makedirs(output_dir, exist_ok=True)
     model = load_model(config_file, grounded_checkpoint, device=device)
     predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint).to(device))
 
@@ -210,12 +213,13 @@ def get_obj_traj(args, text_prompt, demo_dir=None, img_list=None, times=None):
         input_data = sorted(os.listdir(image_dir), key=num_sort)
     else:
         input_data = sorted(img_list, key=num_sort)
+    input_data = input_data[start:end]
     obj_traj = []
 
     for image_idx in tqdm(range(len(input_data)), dynamic_ncols=True):
         image_num = input_data[image_idx]
-        if return_time:
-            img_time = times[image_idx]
+        # if return_time:
+        img_time = times[start + image_idx]
 
         # print("loading img {}".format(image_num))
         image_path = os.path.join(image_dir, image_num)
@@ -276,10 +280,10 @@ def get_obj_traj(args, text_prompt, demo_dir=None, img_list=None, times=None):
 
         # coords = rs.rs2_deproject_pixel_to_point(intr_depth, pixel_coords, depth)
 
-        if return_time:
-            obj_traj.append([img_time, image_num, pixel_coords])
-        else:
-            obj_traj.append([image_num, pixel_coords])
+        # if return_time:
+        obj_traj.append([img_time, image_num, pixel_coords])
+        # else:
+        #     obj_traj.append([image_num, pixel_coords])
         plt.axis('off')
         plt.savefig(
             os.path.join(output_dir, image_num), 
